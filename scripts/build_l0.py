@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Build an L0 tree-census workbook from a transcribed CSV of one or more scanned
-datasheet pages, following data/protocol/Data Entry Protocol.pdf.
+Build an L0 tree-census workbook from a transcribed CSV of scanned datasheet
+pages for one site, following data/protocol/Data Entry Protocol.pdf.
 
 Usage:
     build_l0.py --site SG-NES1 --census 2 \
         --template data/template/Forest_Inventory+Mortality_Data_Entry_Template_2024-09-18.xlsx \
         --prior data/last_inventory/SG-NES1_inventory_data_2021_L2_24-11-04.xlsx \
-        --raw data/work/csv/SG-NES1_page01_raw.csv \
-        --page-date-status ambiguous \
+        --raw data/work/csv/SG-NES1_all_raw.csv \
         --census-start 2026-08-07 --census-end 2026-08-10 \
         --out data/work/output/SG-NES1_inventory_data_2026_L0_<today>.xlsx
 
@@ -17,7 +16,14 @@ Raw CSV columns (one row per tree, in datasheet order):
     dbh1, dbh2, dbh_hom, dbh_method, cii, canopy_pos, survival_status,
     deathdam_status, deathdam_mode, living_length, pct_crown, pct_leaves,
     degrees_leaning, leaf_damage, wounded_trunk, comment,
-    unclear_field, unclear_flags
+    row_date, unclear_field, unclear_flags
+
+`row_date` (YYYY-MM-DD) is the date at the top of the page this row was
+transcribed from — used for Height_Date/DBH_Date/CII_Date/Crown_Class_Date/
+Condition_Obs_Date, and for Tag_Date on a new tree. Leave it blank when the
+page's date is ambiguous (e.g. two dates listed with no way to tell which
+rows go with which) — those date columns are then left blank+highlighted
+and logged as an issue instead of guessed.
 
 `unclear_field` names which raw-CSV field (e.g. "height1") the issue in
 `unclear_flags` refers to, so the Issue Log can cite the exact cell; leave
@@ -31,7 +37,7 @@ import datetime as dt
 import shutil
 
 import openpyxl
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 HIGHLIGHT = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -78,21 +84,21 @@ DATE_COLUMNS = [
 
 
 def to_cell_value(field, val):
-    """Return (value, is_number) for a raw CSV string, per protocol rules."""
+    """Return the value to write for a raw CSV string, per protocol rules."""
     val = val.strip() if val else ""
     if val == "":
-        return None, False
+        return None
     if val == "check":
-        return CHECKMARK_FORMULA, False
+        return CHECKMARK_FORMULA
     if field in NUMERIC_FIELDS and val not in ("-", "NA"):
         try:
             num = float(val)
             if num.is_integer():
                 num = int(num)
-            return num, True
+            return num
         except ValueError:
             pass  # not parseable as a number — enter as written, flag separately
-    return val, False
+    return val
 
 
 def load_prior_inventory(path):
@@ -118,6 +124,16 @@ def load_prior_inventory(path):
     return out
 
 
+def parse_date(val):
+    """Parse a YYYY-MM-DD string to a date object; pass through other values."""
+    if isinstance(val, str) and val.strip():
+        try:
+            return dt.date.fromisoformat(val.strip())
+        except ValueError:
+            return val
+    return val
+
+
 def build(args):
     shutil.copy(args.template, args.out)
     wb = openpyxl.load_workbook(args.out)
@@ -138,7 +154,7 @@ def build(args):
     for other_name in ("Changelog", "Issue Log"):
         other_ws = wb[other_name]
         for cell in other_ws[1]:
-            cell.alignment = openpyxl.styles.Alignment(wrap_text=True, vertical="center")
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
         other_ws.row_dimensions[1].height = 30
 
     prior = load_prior_inventory(args.prior)
@@ -150,6 +166,8 @@ def build(args):
     issue_row = 2
     while issues.cell(row=issue_row, column=1).value not in (None, ""):
         issue_row += 1
+
+    ambiguous_date_rows = []
 
     def log_issue(text, row=None, colname=None):
         nonlocal issue_row
@@ -165,19 +183,20 @@ def build(args):
             r = next_row
             tag_raw = raw["tag"].strip()
             tag = int(tag_raw) if tag_raw.isdigit() else tag_raw
+            row_date = raw.get("row_date", "").strip()
 
             ws.cell(row=r, column=col_idx["Site_Name"], value=args.site)
             ws.cell(row=r, column=col_idx["Census_Number"], value=args.census)
             ws.cell(row=r, column=col_idx["Tag_Number"], value=tag)
             ws.cell(row=r, column=col_idx["Entry_Personnel"], value=args.entry_personnel)
-            ws.cell(row=r, column=col_idx["Entry_Date"], value=args.entry_date)
+            ws.cell(row=r, column=col_idx["Entry_Date"], value=parse_date(args.entry_date))
 
             if args.census_start:
-                ws.cell(row=r, column=col_idx["Census_Start"], value=args.census_start)
+                ws.cell(row=r, column=col_idx["Census_Start"], value=parse_date(args.census_start))
             else:
                 ws.cell(row=r, column=col_idx["Census_Start"]).fill = HIGHLIGHT
             if args.census_end:
-                ws.cell(row=r, column=col_idx["Census_End"], value=args.census_end)
+                ws.cell(row=r, column=col_idx["Census_End"], value=parse_date(args.census_end))
             else:
                 ws.cell(row=r, column=col_idx["Census_End"]).fill = HIGHLIGHT
 
@@ -186,32 +205,33 @@ def build(args):
                 ws.cell(row=r, column=col_idx["Previous_Tag_Number"], value=prior_row["Previous_Tag_Number"])
                 ws.cell(row=r, column=col_idx["Tag_Date"], value=prior_row["Tag_Date"])
             else:
-                # New tree: prev tag from sheet (if any); tag date = date tagged
-                # this survey, passed in via --new-tree-date.
+                # New tree: prev tag from sheet (if any); Tag_Date = date tagged
+                # this survey = this row's page date.
                 ws.cell(row=r, column=col_idx["Previous_Tag_Number"], value=raw["prev_tag_sheet"] or "NA")
-                if args.new_tree_date:
-                    ws.cell(row=r, column=col_idx["Tag_Date"], value=args.new_tree_date)
+                if row_date:
+                    ws.cell(row=r, column=col_idx["Tag_Date"], value=parse_date(row_date))
                 else:
                     ws.cell(row=r, column=col_idx["Tag_Date"]).fill = HIGHLIGHT
-                    log_issue(f"Tag {tag}: new tree, no --new-tree-date supplied for Tag_Date",
+                    log_issue(f"Tag {tag}: new tree, page date ambiguous — Tag_Date left blank",
                               row=r, colname="Tag_Date")
 
             for field, colname in FIELD_MAP.items():
                 raw_val = raw.get(field, "")
                 cell = ws.cell(row=r, column=col_idx[colname])
-                value, _is_num = to_cell_value(field, raw_val)
+                value = to_cell_value(field, raw_val)
                 if value is None:
                     cell.fill = HIGHLIGHT
                 else:
                     cell.value = value
 
-            # Data collection dates: only fill if the page date is unambiguous.
+            # Data collection dates: only fill if this row's page date is known.
             for datecol in DATE_COLUMNS:
                 cell = ws.cell(row=r, column=col_idx[datecol])
-                if args.page_date and args.page_date_status == "ok":
-                    cell.value = args.page_date
+                if row_date:
+                    cell.value = parse_date(row_date)
                 else:
                     cell.fill = HIGHLIGHT
+                    ambiguous_date_rows.append(r)
 
             unclear = raw.get("unclear_flags", "").strip()
             if unclear:
@@ -224,11 +244,24 @@ def build(args):
 
             next_row += 1
 
-    if args.page_date_status != "ok":
-        log_issue(f"{args.site}: page date ambiguous/unresolved "
-                   f"({args.page_date or 'see scan header'}) — "
-                   "Height_Date/DBH_Date/CII_Date/Crown_Class_Date/"
-                   "Condition_Obs_Date left blank+highlighted for affected rows")
+    if ambiguous_date_rows:
+        # Report contiguous row ranges (one per affected page), not just the
+        # overall min-max, which would wrongly imply every row in between
+        # is affected. (Each row can appear once per date column, so dedupe.)
+        unique_rows = sorted(set(ambiguous_date_rows))
+        ranges = []
+        start = prev = unique_rows[0]
+        for r in unique_rows[1:]:
+            if r == prev + 1:
+                prev = r
+                continue
+            ranges.append((start, prev))
+            start = prev = r
+        ranges.append((start, prev))
+        rows_desc = ", ".join(f"{a}-{b}" if a != b else f"{a}" for a, b in ranges)
+        log_issue(f"{args.site}: page date ambiguous/unresolved for rows {rows_desc} — "
+                   "Height_Date/DBH_Date/CII_Date/Crown_Class_Date/Condition_Obs_Date "
+                   "left blank+highlighted (see scan header)")
 
     if not args.census_start or not args.census_end:
         log_issue(f"{args.site}: Census_Start/Census_End left blank+highlighted — "
@@ -246,9 +279,6 @@ if __name__ == "__main__":
     p.add_argument("--template", required=True)
     p.add_argument("--prior", default=None)
     p.add_argument("--raw", required=True)
-    p.add_argument("--page-date", default=None, help="Date to use for data-collection date columns (YYYY-MM-DD)")
-    p.add_argument("--page-date-status", choices=["ok", "ambiguous"], default="ambiguous")
-    p.add_argument("--new-tree-date", default=None, help="Tag_Date to use for trees not found in --prior")
     p.add_argument("--census-start", default=None, help="Earliest date across ALL of this site's datasheet pages")
     p.add_argument("--census-end", default=None, help="Latest date across ALL of this site's datasheet pages")
     p.add_argument("--entry-personnel", default="Violet Williamson")

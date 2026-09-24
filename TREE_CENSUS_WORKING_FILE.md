@@ -69,17 +69,32 @@ The human review step matters most. Handwriting recognition will make mistakes, 
 - **Geotag_*, Latitude, Longitude, GPS_File_Name** for continuing trees: left empty at L0, not carried forward from `last_inventory` — pending your check with your PI.
 - **Species codes**: not validated against a lookup list — you'll check those manually if needed.
 
+## SG-NES1 scan structure (worth knowing before checking other sites)
+
+The 20-page scan PDF isn't a clean 1:1 page-per-sheet — found while transcribing:
+- Sheets are numbered "n/16" in the corner; PDF pages 1–16 map directly to sheets 1/16–13/16, **except** sheet 13 appears three times: page 13 ("13a") has real data, pages 14 and 15 are both a near-blank duplicate ("13b") — only page 13 was entered.
+- PDF pages 16–18 = sheets 14/16–16/16 (tags 4730–4822).
+- PDF pages 19 and 20 are both the "new trees" addendum (tags 4823–4855, all flagged "out of sequence" with geotag references to nearby trees) — near-identical content scanned/copied twice. Per your call, only entered once (page 19).
+- Sheets 12/16 and 13/16 have no date filled in at the top at all — per protocol ("if no date is written at the top, use the last day of the census"), these rows use Census_End (2026-08-10).
+- Worth checking the other 3 sites' scans for the same kind of duplicate/blank pages before assuming page count = sheet count.
+
 ## Open items
 
-- [ ] Once a site's full date range is known (after all its pages are transcribed), fill in that site's Census_Start/Census_End across all its rows.
+- [ ] **Review `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` against the scans** — 555 rows, 93 Issue Log entries (mostly the ~99 rows with ambiguous page dates on sheets 1/16, 2/16, and the new-trees addendum; plus ~25 individually-flagged unclear cells — each cites its exact cell).
+- [ ] Geotag_Ref/Dist/Dir for the 33 new (out-of-sequence) trees on the addendum page: the template has no dedicated columns matching this sheet's layout, so that data is folded into the Comment field for now — decide whether to add proper columns or leave as-is.
+- [ ] Tag 4829's comment references tag 4326 but its Geotag Ref number is 4323 — inconsistency on the sheet itself, flagged in the Issue Log, needs your read of the original.
+- [ ] Rows 4728/4729 and 4664/4668 have unusually sparse or odd data on the sheet itself (see Issue Log) — worth a second look at the originals.
 
 ## Progress log
 
 | Date | What I did | Next step |
 |------|------------|-----------|
 | 2026-09-22 | Created working file | Answer open questions; collect a few sample scans |
-| 2026-09-24 | Got protocol, scans, template, prior inventory into `data/`. Read protocol in full, confirmed template columns and a sample scan page match. Built `scripts/build_l0.py` and piloted it on SG-NES1 page 1 (trees 4301–4333) → `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24_PILOT.xlsx` | Get your check on the pilot's accuracy against the actual scan, then scale to the rest of SG-NES1 and the other 3 sites |
-| 2026-09-24 | Updated script per your feedback: real numeric cells, cell references in Issue Log, Entry_Personnel = Violet Williamson, Census_Start/End deferred to whole-site date range, Geotag/Lat/Long left empty for continuing trees, no species-code validation. Rebuilt pilot. | Same as above — check pilot, then scale up |
+| 2026-09-24 | Got protocol, scans, template, prior inventory into `data/`. Read protocol in full, confirmed template columns and a sample scan page match. Built `scripts/build_l0.py` and piloted it on SG-NES1 page 1 (trees 4301–4333) | Get your check on the pilot's accuracy, then scale up |
+| 2026-09-24 | Updated script per your feedback: real numeric cells, cell references in Issue Log, Entry_Personnel = Violet Williamson, Census_Start/End deferred to whole-site date range, Geotag/Lat/Long left empty for continuing trees, no species-code validation | Same as above |
+| 2026-09-24 | Fixed clipped header rows on all 3 sheets (Data Entry, Changelog, Issue Log) | — |
+| 2026-09-24 | Cleaned up scratch files; hid `.venv` from Explorer | — |
+| 2026-09-24 | Transcribed **all of SG-NES1** (16 main sheets + new-trees addendum, 555 trees), worked out the page/sheet numbering quirks above, resolved Census_Start/End (2026-08-07 to 2026-08-10) from the full page set, rewrote `build_l0.py` to handle a per-row page date (since one site spans multiple survey days) and to write real date objects → `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` | Get your check on SG-NES1's accuracy, then do the same for SG-NES3, CA-CAR3, CC-CVN2 |
 
 ## Notes and links
 
