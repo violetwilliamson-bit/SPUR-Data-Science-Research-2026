@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a data entry helper that takes scanned, handwritten tree census data sheets and turns them into rows in a spreadsheet, so the data doesn't have to be typed in by hand.
+Build a data entry helper that takes scanned, handwritten tree census data sheets and turns them into rows in a spreadsheet.
 
 ## Pipeline (draft)
 
