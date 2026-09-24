@@ -27,3 +27,11 @@ build/
 # OS
 Thumbs.db
 .DS_Store
+
+# Python virtualenv
+.venv/
+
+# Tree census project: raw scans stay local-only; rendered page images are
+# regenerable scratch (see TREE_CENSUS_WORKING_FILE.md)
+data/scans/
+data/work/images/
