@@ -118,6 +118,7 @@ Open questions from the diff:
 
 ## Open items
 
+- [ ] **Hand-off (after all four sites are done):** make this reusable by whoever comes next, given the same template and datasheets. Plan: move the valid-code lists and the column map out of `build_l0.py` into a config file; add `requirements.txt`; write a README covering the steps (render + crop scans, transcribe, build, spot-check); document the conventions from the SG-NES1 check. Note for the README: the reading of handwriting is done by Claude looking at the cropped images, so the next person needs an AI assistant with image reading, not just the scripts.
 - [ ] **Review `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` against the scans** — 555 rows, 93 Issue Log entries (mostly the ~99 rows with ambiguous page dates on sheets 1/16, 2/16, and the new-trees addendum; plus ~25 individually-flagged unclear cells — each cites its exact cell).
 - [ ] Geotag_Ref/Dist/Dir for the 33 new (out-of-sequence) trees on the addendum page: the template has no dedicated columns matching this sheet's layout, so that data is folded into the Comment field for now — decide whether to add proper columns or leave as-is.
 - [ ] Tag 4829's comment references tag 4326 but its Geotag Ref number is 4323 — inconsistency on the sheet itself, flagged in the Issue Log, needs your read of the original.
