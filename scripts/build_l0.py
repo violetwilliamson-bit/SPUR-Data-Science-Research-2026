@@ -16,14 +16,26 @@ Raw CSV columns (one row per tree, in datasheet order):
     dbh1, dbh2, dbh_hom, dbh_method, cii, canopy_pos, survival_status,
     deathdam_status, deathdam_mode, living_length, pct_crown, pct_leaves,
     degrees_leaning, leaf_damage, wounded_trunk, comment,
-    row_date, unclear_field, unclear_flags
+    row_date, crossed_out, unclear_field, unclear_flags
 
 `row_date` (YYYY-MM-DD) is the date at the top of the page this row was
 transcribed from — used for Height_Date/DBH_Date/CII_Date/Crown_Class_Date/
-Condition_Obs_Date, and for Tag_Date on a new tree. Leave it blank when the
-page's date is ambiguous (e.g. two dates listed with no way to tell which
-rows go with which) — those date columns are then left blank+highlighted
-and logged as an issue instead of guessed.
+Condition_Obs_Date, and for Tag_Date on a new tree.
+
+`crossed_out` = Y marks a tree that is fully crossed out on the sheet (already
+dead at the previous census): the whole row is highlighted magenta, the small
+pre-printed height is NOT entered, blanks are not highlighted, and only what is
+actually written (species, DBH "NA", D, status letter, degrees leaning, mode)
+is entered. `survival_status` for a dead tree is the boxed letter "D", not "Dead".
+
+If `row_date` is blank the script defaults to --census-end (and logs one issue
+saying so). While transcribing, fill `row_date` with the LATEST date listed on
+that sheet; leave it blank only when the sheet has no date at all.
+
+Values are checked against the sheet's column legends (e.g. height method must
+be T or H, DBH method T or C); anything outside is highlighted and logged.
+Degrees leaning of 0 is always written as "-".
+"@" and "w/" in Comments / DeathDam mode are spelled out ("at", "with").
 
 `unclear_field` names which raw-CSV field (e.g. "height1") the issue in
 `unclear_flags` refers to, so the Issue Log can cite the exact cell; leave
@@ -34,6 +46,7 @@ real numbers, not text, except when the sheet literally has a dash or NA.
 import argparse
 import csv
 import datetime as dt
+import re
 import shutil
 
 import openpyxl
@@ -82,6 +95,61 @@ DATE_COLUMNS = [
     "Condition_Obs_Date",
 ]
 
+# Full-row highlight for trees crossed out on the sheet (already dead at the
+# previous census) — matches the convention used in the hand-checked SG-NES1 file.
+CROSSED_OUT_FILL = PatternFill(start_color="FF00FF", end_color="FF00FF", fill_type="solid")
+
+# Values the sheet's column legends allow. A value outside these is almost
+# certainly a misread (e.g. a "J" in a T/H column), so it's still entered as
+# read, but highlighted and logged. "/" separates two conflicting entries.
+ALLOWED_CODES = {
+    "height_method": {"T", "H"},
+    "dbh_method": {"T", "C"},
+    "canopy_pos": {"D", "I", "S", "C"},
+    "survival_status": {"A", "D", "OK", "X", "NF"},
+    "deathdam_status": {"S", "L", "B", "U", "X"},
+    "leaf_damage": {"Y", "N"},
+}
+ALLOWED_NUMERIC_RANGES = {
+    "cii": (1, 5),
+    "wounded_trunk": (0, 3),
+    "pct_crown": (0, 100),
+    "pct_leaves": (0, 100),
+    "degrees_leaning": (0, 90),
+}
+
+
+def check_allowed(field, val):
+    """Return a problem description if `val` is outside the sheet's legend, else None."""
+    val = val.strip() if val else ""
+    if val in ("", "-", "NA", "check"):
+        return None
+    if field in ALLOWED_CODES:
+        parts = [p.strip() for p in val.split("/")]
+        bad = [p for p in parts if p not in ALLOWED_CODES[field]]
+        if bad:
+            return (f"'{val}' is not a valid {field} code "
+                    f"(allowed: {', '.join(sorted(ALLOWED_CODES[field]))})")
+    if field in ALLOWED_NUMERIC_RANGES:
+        lo, hi = ALLOWED_NUMERIC_RANGES[field]
+        for p in val.split("/"):
+            try:
+                n = float(p)
+            except ValueError:
+                return f"'{val}' is not a number (expected {lo}-{hi})"
+            if not lo <= n <= hi:
+                return f"'{val}' is outside the expected range {lo}-{hi}"
+    return None
+
+
+def normalize_text(field, val):
+    """Comments / DeathDam mode: spell out '@' and 'w/' (as done in the checked SG-NES1 file)."""
+    if field not in ("comment", "deathdam_mode") or not val:
+        return val
+    val = re.sub(r"\s*@\s*", " at ", val)
+    val = re.sub(r"\bw/\s*", "with ", val)
+    return re.sub(r"\s{2,}", " ", val).strip()
+
 
 def to_cell_value(field, val):
     """Return the value to write for a raw CSV string, per protocol rules."""
@@ -90,6 +158,8 @@ def to_cell_value(field, val):
         return None
     if val == "check":
         return CHECKMARK_FORMULA
+    if field == "degrees_leaning" and val in ("0", "0.0"):
+        return "-"  # a dash means 0 degrees of lean; record every 0 as a dash
     if field in NUMERIC_FIELDS and val not in ("-", "NA"):
         try:
             num = float(val)
@@ -168,6 +238,7 @@ def build(args):
         issue_row += 1
 
     ambiguous_date_rows = []
+    fallback_date_rows = []
 
     def log_issue(text, row=None, colname=None):
         nonlocal issue_row
@@ -184,6 +255,12 @@ def build(args):
             tag_raw = raw["tag"].strip()
             tag = int(tag_raw) if tag_raw.isdigit() else tag_raw
             row_date = raw.get("row_date", "").strip()
+            crossed_out = raw.get("crossed_out", "").strip().upper() == "Y"
+            if not row_date and args.census_end:
+                # No date could be read for this page: default to the latest
+                # census date, and say so in the Issue Log.
+                row_date = args.census_end
+                fallback_date_rows.append(r)
 
             ws.cell(row=r, column=col_idx["Site_Name"], value=args.site)
             ws.cell(row=r, column=col_idx["Census_Number"], value=args.census)
@@ -216,13 +293,27 @@ def build(args):
                               row=r, colname="Tag_Date")
 
             for field, colname in FIELD_MAP.items():
-                raw_val = raw.get(field, "")
+                raw_val = normalize_text(field, raw.get(field, ""))
                 cell = ws.cell(row=r, column=col_idx[colname])
+                if crossed_out and field == "height1":
+                    # The small number on a crossed-out row is the pre-printed
+                    # prior-census height, not a measurement — leave it blank.
+                    continue
                 value = to_cell_value(field, raw_val)
                 if value is None:
-                    cell.fill = HIGHLIGHT
+                    if not crossed_out:
+                        cell.fill = HIGHLIGHT
                 else:
                     cell.value = value
+                    problem = None if crossed_out else check_allowed(field, raw_val)
+                    if problem:
+                        cell.fill = HIGHLIGHT
+                        log_issue(f"Tag {tag}: {problem}", row=r, colname=colname)
+
+            if crossed_out:
+                # Whole row highlighted, matching the hand-checked SG-NES1 file.
+                for c in range(1, len(headers) + 1):
+                    ws.cell(row=r, column=c).fill = CROSSED_OUT_FILL
 
             # Data collection dates: only fill if this row's page date is known.
             for datecol in DATE_COLUMNS:
@@ -262,6 +353,11 @@ def build(args):
         log_issue(f"{args.site}: page date ambiguous/unresolved for rows {rows_desc} — "
                    "Height_Date/DBH_Date/CII_Date/Crown_Class_Date/Condition_Obs_Date "
                    "left blank+highlighted (see scan header)")
+
+    if fallback_date_rows:
+        log_issue(f"{args.site}: no readable page date for {len(fallback_date_rows)} rows — "
+                   f"defaulted to the census end date ({args.census_end}) for Tag_Date (new trees) "
+                   "and all *_Date columns; check against the sheet headers")
 
     if not args.census_start or not args.census_end:
         log_issue(f"{args.site}: Census_Start/Census_End left blank+highlighted — "

@@ -42,7 +42,7 @@ The human review step matters most. Handwriting recognition will make mistakes, 
 - `data/scans/` — scanned datasheet PDFs, one per site: SG-NES1 (20 pages), SG-NES3 (14 pages), CA-CAR3 (11 pages), CC-CVN2 (19 pages). Last page(s) of each = new trees tagged that census.
 - `data/template/Forest_Inventory+Mortality_Data_Entry_Template_2024-09-18.xlsx` — the master template (`Data Entry`, `Changelog`, `Issue Log` sheets).
 - `data/last_inventory/` — 2021 L2 files per site, used to seed `Site_Name`, `Tag_Number`, `Previous_Tag_Number`, `Tag_Date`, `Sp_Code` for continuing trees, per protocol.
-- `data/work/` — scratch area: `images/` (rendered page PNGs), `csv/` (transcribed raw rows per page), `output/` (built L0 workbooks).
+- `data/work/` — scratch area: `images/` (rendered page PNGs), `csv/` (transcribed raw rows per page), `output/` (built L0 workbooks), `checked/` (your hand-checked/edited workbooks, e.g. `SG-NES1_inventory_data_2026_L1_<date>.xlsx` — kept separate so my original L0 output is never overwritten).
 
 ## Protocol summary (L0 scope only, for now)
 
@@ -72,11 +72,49 @@ The human review step matters most. Handwriting recognition will make mistakes, 
 ## SG-NES1 scan structure (worth knowing before checking other sites)
 
 The 20-page scan PDF isn't a clean 1:1 page-per-sheet — found while transcribing:
-- Sheets are numbered "n/16" in the corner; PDF pages 1–16 map directly to sheets 1/16–13/16, **except** sheet 13 appears three times: page 13 ("13a") has real data, pages 14 and 15 are both a near-blank duplicate ("13b") — only page 13 was entered.
+- Sheets are numbered "n/16" in the corner; PDF pages 1–16 map directly to sheets 1/16–13/16, **except** sheet 13 appears three times: page 13 ("13a") has real data for tags 4697–4727, and pages 14 and 15 are two scans of "13b", which looks like a near-blank duplicate **but is not** — it holds the real data for tags 4728 and 4729 (which are blank on 13a). I only entered 13a, so those two rows were incomplete until you fixed them. Lesson: compare apparent duplicate pages row by row before skipping one.
 - PDF pages 16–18 = sheets 14/16–16/16 (tags 4730–4822).
 - PDF pages 19 and 20 are both the "new trees" addendum (tags 4823–4855, all flagged "out of sequence" with geotag references to nearby trees) — near-identical content scanned/copied twice. Per your call, only entered once (page 19).
 - Sheets 12/16 and 13/16 have no date filled in at the top at all — per protocol ("if no date is written at the top, use the last day of the census"), these rows use Census_End (2026-08-10).
 - Worth checking the other 3 sites' scans for the same kind of duplicate/blank pages before assuming page count = sheet count.
+
+## What your hand-check of SG-NES1 taught me
+
+I diffed your checked workbook against my original (982 changed cells). What changed, and what I do differently from now on:
+
+| What you fixed | Cause | Now |
+|---|---|---|
+| 8 × "J" in Height_Method → "T" | Misread; only T/H are valid | Script checks every coded column against the sheet legends and flags anything outside (would have caught all 8) |
+| "Dead" in Survival_Status → "D" (46 rows) | I wrote the word instead of the boxed letter | Use the boxed letter; script flags "Dead" |
+| Degrees_Leaning / Leaf_Damage swapped on ~12 dead rows | Column misalignment in my CSV for dead rows | Crossed-out rows now use a `crossed_out` flag; script writes them, so no hand-aligned blanks |
+| Heights on crossed-out (already-dead) rows removed | That small number is the pre-printed prior-census value, not a measurement | Not entered for crossed-out rows |
+| ~63 comments removed | I entered the small **pre-printed** prior-census comments (e.g. "shares base with 4408"); protocol says only enter them if circled | Only handwritten / circled comments |
+| Comment placed on wrong row (e.g. 4301 vs 4302) | Handwriting sits between rows | Flag comments that sit between rows instead of guessing |
+| "@" → "at", "w/" → "with" | You normalized these | Script does it in Comments / DeathDam mode |
+| Two conflicting values kept as "9.9/10.4" | I had kept only the first | Enter both, separated by "/" |
+| ~54 heights, a few DBH/HOM digit misreads (e.g. 2.16 → 2.6, 3.6 → 3, 13.2 → 12.2) | Handwriting | Flag digit strings that are unusual for the tree's size |
+| Rows 4728 / 4729 filled in | I skipped page 13b (see above) | Compare duplicate pages row by row |
+| Crossed-out rows highlighted magenta, whole row | Your convention | Script highlights crossed-out rows magenta |
+
+Confirmed convention for a crossed-out row: only Tag, Prev tag, Sp_Code, DBH_1 = "NA", Survival "D", DeathDam status, degrees leaning / mode if written, plus **all five *_Date columns filled**.
+
+Dates: for the next sites, `*_Date` and new-tree `Tag_Date` default to the **latest date listed on that sheet**, or the **census end date** if the sheet has none (no more blank+highlighted "ambiguous" rows).
+
+Open questions from the diff:
+- **Tag_Date is empty in every row of your checked file** (all 522 continuing trees). Deliberate (waiting on your PI), or lost in the export?
+- **Degrees_Leaning "0" → "-"** on 67 rows, almost all on sheets 14–16 (tags 4730–4822). On the scan those read as 0s to me. Is a "0" on these sheets meant to be a dash, or is 0 right and "-" your choice?
+- Single cells highlighted magenta (mostly DBH_Date on tags 4334–4366 and 4823–4855; also some Wounded_Trunk / Living_Length) — a different meaning from the full-row crossed-out highlight?
+- Did you want the SG-NES1 raw CSV / workbook regenerated with these fixes? I left them alone since your checked file is now the better version.
+
+## SG-NES3 (transcribed 2026-09-25)
+
+- 14-page scan = 13 numbered sheets ("n/13", page N = sheet N, no duplicates) + a new-trees addendum (page 14). Page 13's lower half is blank.
+- 421 trees: all 408 from the 2021 inventory (tags 7501–7600 and 7901–8208; the 7600→7901 jump is real and matches the 2021 file) + 13 new trees (8209–8221).
+- Dates: `*_Date` = latest date on each sheet (8/5 or 8/6; page 7's header lists both, so 8/6). Sheet 3 has no date, so it defaults to the census end (8/6). Census 2026-08-05 to 2026-08-06. New trees use the addendum's date (8/5).
+- Crossed-out rows (already dead at the previous census) are magenta-highlighted: 7554, 7558, 7580, 8038, 8183, 8186, 8189 (+ 7990, a dropped tag).
+- New-tree geotag ref/dist/dir are folded into the Comment (same as SG-NES1). Six new trees have a geotag ref that disagrees with the tag named in their comment — flagged.
+- 65 Issue Log entries (each cites its cell): mostly stray "1" before "90" in % crown/leaves (entered 90), "+" or "N" in Wounded_Trunk / Degrees_Leaning, negative Living_Length (-0.1), and dashes where DBH_HOM would be 0.
+- Scan workflow change: `scripts/scan_crops.py` deskews each page and cuts it into zoomed left/right bands; the full-page images were too small to tell digits apart reliably.
 
 ## Open items
 
@@ -95,6 +133,8 @@ The 20-page scan PDF isn't a clean 1:1 page-per-sheet — found while transcribi
 | 2026-09-24 | Fixed clipped header rows on all 3 sheets (Data Entry, Changelog, Issue Log) | — |
 | 2026-09-24 | Cleaned up scratch files; hid `.venv` from Explorer | — |
 | 2026-09-24 | Transcribed **all of SG-NES1** (16 main sheets + new-trees addendum, 555 trees), worked out the page/sheet numbering quirks above, resolved Census_Start/End (2026-08-07 to 2026-08-10) from the full page set, rewrote `build_l0.py` to handle a per-row page date (since one site spans multiple survey days) and to write real date objects → `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` | Get your check on SG-NES1's accuracy, then do the same for SG-NES3, CA-CAR3, CC-CVN2 |
+| 2026-09-25 | Compared your checked SG-NES1 workbook (in `data/work/checked/`) against my original; added valid-value checks, `crossed_out` row handling, comment normalization and a latest-date default to `build_l0.py`; documented the lessons above | Answer the open questions from the diff, then transcribe SG-NES3 / CA-CAR3 / CC-CVN2 |
+| 2026-09-25 | Built degrees-leaning 0→"-" into the script; transcribed all of SG-NES3 (421 trees) with the new checks → `data/work/output/SG-NES3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of SG-NES3, then CA-CAR3 and CC-CVN2 |
 
 ## Notes and links
 
