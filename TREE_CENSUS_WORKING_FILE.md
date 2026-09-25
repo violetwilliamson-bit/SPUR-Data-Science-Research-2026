@@ -116,6 +116,16 @@ Open questions from the diff:
 - 65 Issue Log entries (each cites its cell): mostly stray "1" before "90" in % crown/leaves (entered 90), "+" or "N" in Wounded_Trunk / Degrees_Leaning, negative Living_Length (-0.1), and dashes where DBH_HOM would be 0.
 - Scan workflow change: `scripts/scan_crops.py` deskews each page and cuts it into zoomed left/right bands; the full-page images were too small to tell digits apart reliably.
 
+## CA-CAR3 (transcribed 2026-09-25)
+
+- 11-page scan = sheets 1/9-9/9, a second copy of sheet 6/9, and a new-trees sheet (page 11, labeled "10/9"). The two copies of 6/9 are complementary, not duplicates: page 6 holds trees 8466-8476 (8477-8498 are blank pre-printed rows), page 7 holds 8477-8498 (8466-8476 blank). Both were used. Same pattern as SG-NES1's sheet 13a/13b.
+- 297 trees: all 291 from the 2021 inventory (8301-8591) + 6 new trees (8600, 9903, 9904, 9905, 9907, 9908). Tag 9902 is mentioned on tag 8325's comment ("new tag -> 9902 out of seq") but has no row on the new-trees sheet - worth asking.
+- Dates: every sheet is 8/8/26 (page 5 has no date, so it defaults to the census end, which is also 8/8/26). Census start = census end = 2026-08-08.
+- 31 crossed-out (already dead) rows, magenta. 54 Issue Log entries.
+- New-tree geotag ref/dist/dir are folded into the Comment, as for the other sites. New-tree tag numbers jump 8600 -> 9903 (out of series), all entered in increasing tag order.
+- Sheets 5-9 have a dash in DBH_HOM where the other sites write 0 (entered as written; flagged once per sheet).
+- Several rows have a line drawn through DeathDam status/mode but real numbers in the rest of the row (e.g. 8485, 8499): entered as read and flagged.
+
 ## Open items
 
 - [ ] **Hand-off (after all four sites are done):** make this reusable by whoever comes next, given the same template and datasheets. Plan: move the valid-code lists and the column map out of `build_l0.py` into a config file; add `requirements.txt`; write a README covering the steps (render + crop scans, transcribe, build, spot-check); document the conventions from the SG-NES1 check. Note for the README: the reading of handwriting is done by Claude looking at the cropped images, so the next person needs an AI assistant with image reading, not just the scripts.
@@ -136,6 +146,7 @@ Open questions from the diff:
 | 2026-09-24 | Transcribed **all of SG-NES1** (16 main sheets + new-trees addendum, 555 trees), worked out the page/sheet numbering quirks above, resolved Census_Start/End (2026-08-07 to 2026-08-10) from the full page set, rewrote `build_l0.py` to handle a per-row page date (since one site spans multiple survey days) and to write real date objects → `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` | Get your check on SG-NES1's accuracy, then do the same for SG-NES3, CA-CAR3, CC-CVN2 |
 | 2026-09-25 | Compared your checked SG-NES1 workbook (in `data/work/checked/`) against my original; added valid-value checks, `crossed_out` row handling, comment normalization and a latest-date default to `build_l0.py`; documented the lessons above | Answer the open questions from the diff, then transcribe SG-NES3 / CA-CAR3 / CC-CVN2 |
 | 2026-09-25 | Built degrees-leaning 0→"-" into the script; transcribed all of SG-NES3 (421 trees) with the new checks → `data/work/output/SG-NES3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of SG-NES3, then CA-CAR3 and CC-CVN2 |
+| 2026-09-25 | Transcribed all of CA-CAR3 (297 trees) with the same checks → `data/work/output/CA-CAR3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of CA-CAR3, then CC-CVN2 (last site) |
 
 ## Notes and links
 
