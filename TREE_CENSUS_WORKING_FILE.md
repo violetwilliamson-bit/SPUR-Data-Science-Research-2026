@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a data entry helper that takes scanned, handwritten tree census data sheets and turns them into rows in a spreadsheet.
+Build a data entry helper tool that takes scanned, handwritten tree census inventory data sheets and turns them into rows in a spreadsheet.
 
 ## Pipeline (draft)
 
@@ -10,8 +10,8 @@ Build a data entry helper that takes scanned, handwritten tree census data sheet
 2. **Preprocess**: deskew, crop, boost contrast, split multi-page PDFs into images.
 3. **Layout detection**: find the table and its rows and columns on each sheet.
 4. **Recognition (OCR/HTR)**: read the handwriting in each cell.
-5. **Validate and review**: flag low-confidence or invalid values for a human to check and correct.
-6. **Export**: write the cleaned rows to a spreadsheet (CSV/XLSX or Google Sheets).
+5. **Validate and review**: flag low-confidence, invalid, or unexpected values for a human to check and correct.
+6. **Export**: write the cleaned rows to a spreadsheet (Excel file).
 
 The human review step matters most. Handwriting recognition will make mistakes, so the goal is to reduce typing, not to eliminate checking.
 
@@ -126,6 +126,26 @@ Open questions from the diff:
 - Sheets 5-9 have a dash in DBH_HOM where the other sites write 0 (entered as written; flagged once per sheet).
 - Several rows have a line drawn through DeathDam status/mode but real numbers in the rest of the row (e.g. 8485, 8499): entered as read and flagged.
 
+## CC-CVN2 (transcribed 2026-09-28, all 4 sites now done)
+
+- 19-page scan = 17 numbered main sheets (page 7 duplicates 1866-1898 from page 6, but only completes 5 rows — 1894-1898 — that were left partial on page 6; only entered once, using the complete version) + a 1-tree new-trees addendum (page 19; page 18 was blank).
+- 534 trees: all 533 from the 2021 inventory (1701-2233, no gaps) + 1 new tree (2234).
+- This site's sheets default Wounded_Trunk and Degrees_Leaning to a literal "0" rather than a dash where other sites use "-" — entered as written; the script's global 0-degrees-leaning-to-dash rule still applies on top of that.
+- A number of trees are recorded "Dead" (survival D) with real measurements collected this census (e.g. 1704, 1714, 1730) — these are NOT the crossed-out convention; only rows with no real data and a literal strike-through line are crossed_out (6 total: 2014, 2055, 2063, 2170, 2213, 2226).
+- Dates: census spans two days, 2026-08-12 and 2026-08-13. One page (page 6 / sheet 6) has no header date, defaulted to the census end date.
+- 47 Issue Log entries: mostly "+" or stray letters in Wounded_Trunk/Leaf_Damage/DeathDam_Status that don't match the sheet's legend, plus a handful of overwritten/ambiguous digits.
+
+## All four sites summary
+
+| Site | Trees | New trees | Crossed-out (already dead) | Census dates |
+|---|---|---|---|---|
+| SG-NES1 | 555 | 33 | — (not tracked pre-convention) | 2026-08-07 to 2026-08-10 |
+| SG-NES3 | 421 | 13 | 8 | 2026-08-05 to 2026-08-06 |
+| CA-CAR3 | 297 | 6 | 31 | 2026-08-08 (single day) |
+| CC-CVN2 | 534 | 1 | 6 | 2026-08-12 to 2026-08-13 |
+
+All four L0 workbooks are in `data/work/output/`.
+
 ## Open items
 
 - [ ] **Hand-off (after all four sites are done):** make this reusable by whoever comes next, given the same template and datasheets. Plan: move the valid-code lists and the column map out of `build_l0.py` into a config file; add `requirements.txt`; write a README covering the steps (render + crop scans, transcribe, build, spot-check); document the conventions from the SG-NES1 check. Note for the README: the reading of handwriting is done by Claude looking at the cropped images, so the next person needs an AI assistant with image reading, not just the scripts.
@@ -147,6 +167,7 @@ Open questions from the diff:
 | 2026-09-25 | Compared your checked SG-NES1 workbook (in `data/work/checked/`) against my original; added valid-value checks, `crossed_out` row handling, comment normalization and a latest-date default to `build_l0.py`; documented the lessons above | Answer the open questions from the diff, then transcribe SG-NES3 / CA-CAR3 / CC-CVN2 |
 | 2026-09-25 | Built degrees-leaning 0→"-" into the script; transcribed all of SG-NES3 (421 trees) with the new checks → `data/work/output/SG-NES3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of SG-NES3, then CA-CAR3 and CC-CVN2 |
 | 2026-09-25 | Transcribed all of CA-CAR3 (297 trees) with the same checks → `data/work/output/CA-CAR3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of CA-CAR3, then CC-CVN2 (last site) |
+| 2026-09-28 | Transcribed all of CC-CVN2 (534 trees, last of the 4 sites) → `data/work/output/CC-CVN2_inventory_data_2026_L0_26-09-28.xlsx`; fixed a bug where 5 crossed-out rows weren't flagged magenta | All 4 sites now have an L0 file. Next: your spot-check of CA-CAR3 and CC-CVN2, then decide on the hand-off work |
 
 ## Notes and links
 
