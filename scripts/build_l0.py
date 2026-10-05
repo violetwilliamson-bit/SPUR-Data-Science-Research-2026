@@ -7,51 +7,75 @@ Usage:
     build_l0.py --site SG-NES1 --census 2 \
         --template data/template/Forest_Inventory+Mortality_Data_Entry_Template_2024-09-18.xlsx \
         --prior data/last_inventory/SG-NES1_inventory_data_2021_L2_24-11-04.xlsx \
-        --raw data/work/csv/SG-NES1_all_raw.csv \
+        --raw data/L0/SG-NES1/SG-NES1_raw.csv \
         --census-start 2026-08-07 --census-end 2026-08-10 \
-        --out data/work/output/SG-NES1_inventory_data_2026_L0_<today>.xlsx
+        --out data/L0/SG-NES1/SG-NES1_inventory_data_2026_L0_<today>.xlsx
 
 Raw CSV columns (one row per tree, in datasheet order):
     tag, prev_tag_sheet, sp_code, height1, height2, height_method,
     dbh1, dbh2, dbh_hom, dbh_method, cii, canopy_pos, survival_status,
     deathdam_status, deathdam_mode, living_length, pct_crown, pct_leaves,
     degrees_leaning, leaf_damage, wounded_trunk, comment,
-    row_date, crossed_out, unclear_field, unclear_flags
+    row_date, crossed_out, source, unclear_flags,
+    geotagged, geotag_ref, geotag_dist, geotag_dir   (new-trees sheet only)
+
+VERBATIM RULE (2026-10-05): every data cell holds only what is HANDWRITTEN on
+the sheet, exactly as written -- "190" stays 190, "0" stays 0, "w/" stays "w/",
+a letter in a number column stays a letter. Pre-printed text (the small
+prior-census numbers, printed "NA", the Live/Dead labels, typed prior comments
+that are not circled, the 9999 example row) is never entered. A cell with no
+handwriting is left blank and highlighted. Handwriting that was crossed out by
+the crew is left out of the cell and recorded in the Issue Log. Interpretations
+("probably 90") go ONLY in the Issue Log, never in the cell. This script makes
+no corrections; it only flags.
+
+Site_Name, Tag_Number, Previous_Tag_Number, Tag_Date and Sp_Code for continuing
+trees come from the prior-census file (--prior), as the protocol says, not from
+the CSV. For a continuing tree, `sp_code` in the CSV is only filled when the
+crew HANDWROTE a species on the row; if it differs from the prior-census code it
+is flagged. New trees (not in --prior) take Sp_Code and prev tag from the CSV.
 
 `row_date` (YYYY-MM-DD) is the date at the top of the page this row was
-transcribed from — used for Height_Date/DBH_Date/CII_Date/Crown_Class_Date/
-Condition_Obs_Date, and for Tag_Date on a new tree.
+transcribed from -- used for Height_Date/DBH_Date/CII_Date/Crown_Class_Date/
+Condition_Obs_Date, and for Tag_Date on a new tree. Fill it with the LATEST
+date listed on that sheet; leave it blank only when the sheet has no date, and
+the script uses --census-end (protocol rule) and logs that.
 
 `crossed_out` = Y marks a tree that is fully crossed out on the sheet (already
-dead at the previous census): the whole row is highlighted magenta, the small
-pre-printed height is NOT entered, blanks are not highlighted, and only what is
-actually written (species, DBH "NA", D, status letter, degrees leaning, mode)
-is entered. `survival_status` for a dead tree is the boxed letter "D", not "Dead".
+dead at the previous census): the whole row is highlighted magenta. Only the
+handwriting on it is entered, like any other row.
 
-If `row_date` is blank the script defaults to --census-end (and logs one issue
-saying so). While transcribing, fill `row_date` with the LATEST date listed on
-that sheet; leave it blank only when the sheet has no date at all.
+New-trees sheet: it has no Prev Tag column (Previous_Tag_Number is entered
+as "NA") and has Geotag (T/F), Geotag Ref, Geotag Dist (m) and Geotag Dir
+columns, read into the CSV fields geotagged, geotag_ref, geotag_dist,
+geotag_dir and written to Geotagged / Geotag_Association_Ref / _Dist / _Dir.
+These fields are ignored for continuing trees.
 
-Values are checked against the sheet's column legends (e.g. height method must
-be T or H, DBH method T or C); anything outside is highlighted and logged.
-Degrees leaning of 0 is always written as "-".
-"@" and "w/" in Comments / DeathDam mode are spelled out ("at", "with").
+`source` names the scan image(s) the row was read from (e.g. "p01_b1"), so
+every value can be traced back to the scan; it is cited in the Issue Log.
 
-`unclear_field` names which raw-CSV field (e.g. "height1") the issue in
-`unclear_flags` refers to, so the Issue Log can cite the exact cell; leave
-it blank for a whole-row note. Numeric fields (heights, DBH, HOM, CII,
-percentages, degrees leaning, wounded trunk, living length) are written as
-real numbers, not text, except when the sheet literally has a dash or NA.
+Values are checked against the sheet's column legends and ranges (e.g. height
+method must be T or H, % crown 0-100); anything outside is still entered
+exactly as written, but highlighted and logged.
+
+`unclear_flags` holds Issue Log notes for the row, separated by " | ". Start a
+note with a raw-CSV field name and a colon ("dbh1: 13.8 written and crossed
+out") so the Issue Log cites the exact cell; a note without one is a whole-row
+note. (The older single `unclear_field` column is still honoured.) Numeric
+fields are written as real numbers when what is written is a plain number,
+and as text otherwise.
 """
 import argparse
 import csv
 import datetime as dt
 import re
 import shutil
+from copy import copy
 
 import openpyxl
 from openpyxl.styles import PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 HIGHLIGHT = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 CHECKMARK_FORMULA = "=UNICHAR(10004)"
@@ -80,11 +104,20 @@ FIELD_MAP = {
     "comment": "Comments",
 }
 
+# Extra columns that only the new-trees sheet has. Written for new trees only;
+# for continuing trees these columns are left empty (not on their sheet).
+NEW_TREE_FIELD_MAP = {
+    "geotagged": "Geotagged",
+    "geotag_ref": "Geotag_Association_Ref",
+    "geotag_dist": "Geotag_Association_Dist",
+    "geotag_dir": "Geotag_Association_Dir",
+}
+
 # Fields that hold measurements, not codes/text — written as real numbers.
 NUMERIC_FIELDS = {
     "height1", "height2", "dbh1", "dbh2", "dbh_hom", "cii",
     "living_length", "pct_crown", "pct_leaves", "degrees_leaning",
-    "wounded_trunk",
+    "wounded_trunk", "geotag_ref", "geotag_dist", "geotag_dir",
 }
 
 DATE_COLUMNS = [
@@ -109,6 +142,7 @@ ALLOWED_CODES = {
     "survival_status": {"A", "D", "OK", "X", "NF"},
     "deathdam_status": {"S", "L", "B", "U", "X"},
     "leaf_damage": {"Y", "N"},
+    "geotagged": {"T", "F"},
 }
 ALLOWED_NUMERIC_RANGES = {
     "cii": (1, 5),
@@ -116,6 +150,7 @@ ALLOWED_NUMERIC_RANGES = {
     "pct_crown": (0, 100),
     "pct_leaves": (0, 100),
     "degrees_leaning": (0, 90),
+    "geotag_dir": (0, 360),
 }
 
 
@@ -142,15 +177,6 @@ def check_allowed(field, val):
     return None
 
 
-def normalize_text(field, val):
-    """Comments / DeathDam mode: spell out '@' and 'w/' (as done in the checked SG-NES1 file)."""
-    if field not in ("comment", "deathdam_mode") or not val:
-        return val
-    val = re.sub(r"\s*@\s*", " at ", val)
-    val = re.sub(r"\bw/\s*", "with ", val)
-    return re.sub(r"\s{2,}", " ", val).strip()
-
-
 def to_cell_value(field, val):
     """Return the value to write for a raw CSV string, per protocol rules."""
     val = val.strip() if val else ""
@@ -158,14 +184,11 @@ def to_cell_value(field, val):
         return None
     if val == "check":
         return CHECKMARK_FORMULA
-    if field == "degrees_leaning" and val in ("0", "0.0"):
-        return "-"  # a dash means 0 degrees of lean; record every 0 as a dash
     if field in NUMERIC_FIELDS and val not in ("-", "NA"):
         try:
             num = float(val)
-            if num.is_integer():
-                num = int(num)
-            return num
+            # Keep "16" as 16 and "16.0" as 16.0: the written form is the data.
+            return int(val) if re.fullmatch(r"-?\d+", val) else num
         except ValueError:
             pass  # not parseable as a number — enter as written, flag separately
     return val
@@ -233,20 +256,51 @@ def build(args):
     while ws.cell(row=next_row, column=col_idx["Tag_Number"]).value not in (None, ""):
         next_row += 1
 
+    # Issue Log: add Tag_Number and Cell columns in front of the template's
+    # Issues column, so each issue can be found at a glance. Cell is a link
+    # that jumps to the flagged cell on the Data Entry sheet.
+    issues.insert_cols(1, 2)
+    for col, name, width in ((1, "Tag_Number", 12), (2, "Cell", 24)):
+        hdr = issues.cell(row=1, column=col, value=name)
+        hdr.font = copy(issues.cell(row=1, column=3).font)
+        hdr.alignment = Alignment(wrap_text=True, vertical="center")
+        issues.column_dimensions[get_column_letter(col)].width = width
+    for col, width in ((3, 70), (4, 38), (5, 38), (6, 14), (7, 14)):
+        issues.column_dimensions[get_column_letter(col)].width = width
+    ISSUE_COL = 3
+
     issue_row = 2
-    while issues.cell(row=issue_row, column=1).value not in (None, ""):
+    while issues.cell(row=issue_row, column=ISSUE_COL).value not in (None, ""):
         issue_row += 1
 
     ambiguous_date_rows = []
     fallback_date_rows = []
 
-    def log_issue(text, row=None, colname=None):
-        nonlocal issue_row
-        if row is not None and colname is not None:
-            addr = f"{get_column_letter(col_idx[colname])}{row}"
-            text = f"[{ws.title}!{addr}] {text}"
-        issues.cell(row=issue_row, column=1, value=text)
-        issue_row += 1
+    pending_issues = []  # written at the end, sorted by row then column
+
+    def log_issue(text, tag=None, row=None, colname=None):
+        """Queue one Issue Log row: Tag_Number | Cell (linked) | Issues."""
+        col = col_idx[colname] if colname is not None else 0
+        # Site-wide notes (no row) sort after all per-tree issues.
+        pending_issues.append(((row if row is not None else 10**9, col), tag, row, colname, text))
+
+    def write_issues():
+        r = issue_row
+        for _, tag, row, colname, text in sorted(pending_issues, key=lambda i: i[0]):
+            if tag is not None:
+                issues.cell(row=r, column=1, value=tag)
+            if row is not None:
+                if colname is not None:
+                    addr = f"{get_column_letter(col_idx[colname])}{row}"
+                    label = f"{addr} ({colname})"
+                else:
+                    addr, label = f"A{row}", f"row {row}"
+                link = issues.cell(row=r, column=2, value=label)
+                link.hyperlink = Hyperlink(ref=link.coordinate, location=f"'{ws.title}'!{addr}")
+                link.style = "Hyperlink"
+            cell = issues.cell(row=r, column=ISSUE_COL, value=text)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            r += 1
 
     with open(args.raw, newline="") as f:
         reader = csv.DictReader(f)
@@ -277,38 +331,58 @@ def build(args):
             else:
                 ws.cell(row=r, column=col_idx["Census_End"]).fill = HIGHLIGHT
 
+            src = raw.get("source", "").strip()
+            where = f" (scan {src})" if src else ""
+            sheet_sp = raw.get("sp_code", "").strip()
+
             prior_row = prior.get(tag)
             if prior_row is not None:
+                # Continuing tree: identity columns come from the prior census
+                # (protocol), not from reading the printed columns.
                 ws.cell(row=r, column=col_idx["Previous_Tag_Number"], value=prior_row["Previous_Tag_Number"])
                 ws.cell(row=r, column=col_idx["Tag_Date"], value=prior_row["Tag_Date"])
+                ws.cell(row=r, column=col_idx["Sp_Code"], value=prior_row["Sp_Code"])
+                if sheet_sp and sheet_sp != prior_row["Sp_Code"]:
+                    ws.cell(row=r, column=col_idx["Sp_Code"]).fill = HIGHLIGHT
+                    log_issue(f"Species '{sheet_sp}' handwritten on the sheet, "
+                              f"prior census says '{prior_row['Sp_Code']}'{where}",
+                              tag=tag, row=r, colname="Sp_Code")
             else:
-                # New tree: prev tag from sheet (if any); Tag_Date = date tagged
-                # this survey = this row's page date.
+                # New tree: prev tag and species as handwritten; Tag_Date =
+                # date tagged this survey = this row's page date.
                 ws.cell(row=r, column=col_idx["Previous_Tag_Number"], value=raw["prev_tag_sheet"] or "NA")
                 if row_date:
                     ws.cell(row=r, column=col_idx["Tag_Date"], value=parse_date(row_date))
                 else:
                     ws.cell(row=r, column=col_idx["Tag_Date"]).fill = HIGHLIGHT
-                    log_issue(f"Tag {tag}: new tree, page date ambiguous — Tag_Date left blank",
-                              row=r, colname="Tag_Date")
+                    log_issue("New tree, page date ambiguous — Tag_Date left blank",
+                              tag=tag, row=r, colname="Tag_Date")
 
-            for field, colname in FIELD_MAP.items():
-                raw_val = normalize_text(field, raw.get(field, ""))
+            fields = dict(FIELD_MAP)
+            if prior_row is None:
+                fields.update(NEW_TREE_FIELD_MAP)
+            for field, colname in fields.items():
+                if field == "sp_code" and prior_row is not None:
+                    continue  # written above
+                raw_val = raw.get(field, "")
                 cell = ws.cell(row=r, column=col_idx[colname])
-                if crossed_out and field == "height1":
-                    # The small number on a crossed-out row is the pre-printed
-                    # prior-census height, not a measurement — leave it blank.
-                    continue
                 value = to_cell_value(field, raw_val)
                 if value is None:
-                    if not crossed_out:
-                        cell.fill = HIGHLIGHT
-                else:
-                    cell.value = value
-                    problem = None if crossed_out else check_allowed(field, raw_val)
-                    if problem:
-                        cell.fill = HIGHLIGHT
-                        log_issue(f"Tag {tag}: {problem}", row=r, colname=colname)
+                    cell.fill = HIGHLIGHT
+                    continue
+                cell.value = value
+                if isinstance(value, str) and value.startswith("=") and value != CHECKMARK_FORMULA:
+                    cell.data_type = "s"  # a written "=" is text, not a formula
+                if isinstance(value, float):
+                    # Show the decimals that were written ("2.10" stays 2.10).
+                    # (".35" written without a leading zero displays as .35)
+                    lead = "#" if raw_val.strip().startswith(".") else "0"
+                    cell.number_format = lead + "." + "0" * len(raw_val.strip().split(".")[1])
+                problem = check_allowed(field, raw_val)
+                if problem:
+                    cell.fill = HIGHLIGHT
+                    log_issue(f"{problem[0].upper()}{problem[1:]} — entered exactly as written{where}",
+                              tag=tag, row=r, colname=colname)
 
             if crossed_out:
                 # Whole row highlighted, matching the hand-checked SG-NES1 file.
@@ -324,14 +398,20 @@ def build(args):
                     cell.fill = HIGHLIGHT
                     ambiguous_date_rows.append(r)
 
-            unclear = raw.get("unclear_flags", "").strip()
-            if unclear:
-                unclear_field = raw.get("unclear_field", "").strip()
-                colname = FIELD_MAP.get(unclear_field)
-                if colname:
-                    log_issue(f"Tag {tag}: {unclear}", row=r, colname=colname)
+            # Notes: "field: text | field: text | whole-row text"
+            legacy_field = raw.get("unclear_field", "").strip()
+            for note in filter(None, (n.strip() for n in raw.get("unclear_flags", "").split(" | "))):
+                field, _, text = note.partition(":")
+                colname = {**FIELD_MAP, **NEW_TREE_FIELD_MAP}.get(field.strip())
+                if colname and text.strip():
+                    note = text.strip()
                 else:
-                    log_issue(f"Tag {tag} (row {r}): {unclear}")
+                    colname = FIELD_MAP.get(legacy_field)
+                if colname:
+                    ws.cell(row=r, column=col_idx[colname]).fill = HIGHLIGHT
+                    log_issue(f"{note[0].upper()}{note[1:]}{where}", tag=tag, row=r, colname=colname)
+                else:
+                    log_issue(f"{note[0].upper()}{note[1:]}{where}", tag=tag, row=r)
 
             next_row += 1
 
@@ -364,6 +444,7 @@ def build(args):
                    "need dates from every page of this site's datasheets before filling in "
                    "(protocol: earliest/latest date across all datasheets for the site)")
 
+    write_issues()
     wb.save(args.out)
     print(f"Wrote {args.out}")
 

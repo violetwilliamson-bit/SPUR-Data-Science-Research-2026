@@ -4,7 +4,7 @@
 
 Build a data entry helper tool that takes scanned, handwritten tree census inventory data sheets and turns them into rows in a spreadsheet.
 
-## Pipeline (draft)
+## Pipeline1
 
 1. **Scan intake**: collect scanned sheets (PDF/JPG/PNG) in one folder.
 2. **Preprocess**: deskew, crop, boost contrast, split multi-page PDFs into images.
@@ -15,22 +15,7 @@ Build a data entry helper tool that takes scanned, handwritten tree census inven
 
 The human review step matters most. Handwriting recognition will make mistakes, so the goal is to reduce typing, not to eliminate checking.
 
-## Open questions
-
-- [ ] What columns are on the sheets (species, DBH, height, condition, location, date, surveyor, ...)?
-- [ ] Are all sheets the same template, or do formats vary?
-- [ ] Is the handwriting mostly numbers and short codes, or free text?
-- [ ] Roughly how many sheets, and what is the scan quality (resolution, skew, shadows)?
-- [ ] Which recognition approach to try first: Tesseract, a cloud OCR service, or a vision-language model?
-- [ ] Where should the output go: CSV/XLSX file or Google Sheets?
-
-## Data fields
-
-| Field | Type | Valid values / rules | Notes |
-|-------|------|----------------------|-------|
-| _tbd_ | | | |
-
-## Validation rules (ideas)
+## Validation rules
 
 - Numeric fields (e.g. diameter) must fall within a plausible range.
 - Categorical fields (e.g. species code, condition) must match a known list.
@@ -42,9 +27,12 @@ The human review step matters most. Handwriting recognition will make mistakes, 
 - `data/scans/` — scanned datasheet PDFs, one per site: SG-NES1 (20 pages), SG-NES3 (14 pages), CA-CAR3 (11 pages), CC-CVN2 (19 pages). Last page(s) of each = new trees tagged that census.
 - `data/template/Forest_Inventory+Mortality_Data_Entry_Template_2024-09-18.xlsx` — the master template (`Data Entry`, `Changelog`, `Issue Log` sheets).
 - `data/last_inventory/` — 2021 L2 files per site, used to seed `Site_Name`, `Tag_Number`, `Previous_Tag_Number`, `Tag_Date`, `Sp_Code` for continuing trees, per protocol.
-- `data/work/` — scratch area: `images/` (rendered page PNGs), `csv/` (transcribed raw rows per page), `output/` (built L0 workbooks), `checked/` (your hand-checked/edited workbooks, e.g. `SG-NES1_inventory_data_2026_L1_<date>.xlsx` — kept separate so my original L0 output is never overwritten).
+- `data/L0/<site>/` — current L0 data under the verbatim rule: the raw transcription CSV and the built L0 workbook for each site.
+- `data/L1/` — your hand-checked workbooks (L1), kept separate so the L0 output is never overwritten.
+- `data/archive/2026-09_old_rules/` — the first L0 pass of all four sites (older rules): `csv/`, `L0/`, and `checked/` (your SG-NES1 check). Paths in the progress log below that start with `data/work/csv`, `data/work/output` or `data/work/checked` now live here.
+- `data/work/images/` — cropped scan images (regenerable scratch, not committed; `old_format/` holds the crops from the first pass).
 
-## Protocol summary (L0 scope only, for now)
+## Protocol summary (L0 scope only)
 
 - Enter data exactly as written. Blank field → leave blank + highlight cell. Dash on sheet → literal dash. Checkmark → `=UNICHAR(10004)`. Unclear/wrong entry → still enter it, highlight, and log in Issue Log with the tag number.
 - `*_Date` columns (Height_Date, DBH_Date, CII_Date, Crown_Class_Date, Condition_Obs_Date) = date at top of that datasheet page, unless a different date is noted next to an observation.
@@ -52,7 +40,7 @@ The human review step matters most. Handwriting recognition will make mistakes, 
 - New trees (last page(s) of each site's scan set): `Tag_Date` = date tagged that survey (per your instruction), appended after the last existing tag number, increasing by tag number.
 - File name format: `<plot_id>_inventory_data_<collection_year>_L0_<YY-MM-DD created>`.
 
-## Pipeline (built)
+## Pipeline2
 
 1. Render a scan page to a high-res PNG (`pdftoppm`).
 2. Transcribe the page by reading the image (Claude vision) into a raw CSV (one row per tree, datasheet column order) — `data/work/csv/`. Anything unclear goes in the `unclear_flags` column instead of being guessed.
@@ -146,7 +134,25 @@ Open questions from the diff:
 
 All four L0 workbooks are in `data/work/output/`.
 
+## Verbatim L0 revamp (2026-10-05)
+
+You asked for L0 to contain only handwritten marks, exactly as written. Decisions:
+- Keep the printed identity data (site, tag, previous tag, tag date, species), taken from the 2021 file. The issue was only the small printed prior-census values and comments being copied.
+- Crossed-out handwriting: leave the cell blank and describe it in the Issue Log.
+- Drop the 0 to "-", "@" to "at" and "w/" to "with" rewrites, and the "DBH_1 = NA" rule for crossed-out rows.
+- Out-of-range or invalid values: enter exactly as written, highlight, and log.
+- Pilot SG-NES3 sheet 1 first, then redo all four sites after your check.
+- Erased-looking marks: record the darker marks. If only faint writing remains (tag 7520's "cracked trunk"), leave the cell blank and log it.
+- New-trees sheet: Previous_Tag_Number = "NA"; its Geotag / Ref / Dist / Dir columns go into Geotagged / Geotag_Association_Ref / _Dist / _Dir (no longer folded into Comments). Geotag_Date, Latitude, Longitude and GPS_File_Name are not on the sheet and stay empty (confirmed by you 2026-10-05: leave them empty for now).
+- Issue Log: new Tag_Number and Cell columns (Cell links to the flagged cell); issues sorted by row, then column.
+
+Changes: `build_l0.py` no longer rewrites any value. It takes Sp_Code from the prior file and flags a different handwritten species. It keeps written decimals ("9.0"), accepts several notes per row (`field: note | field: note`), and cites the scan crop in each Issue Log entry. `scan_crops.py` now makes 3 bands x 4 column groups at 200 dpi, so crops are not shrunk when read.
+
+Pilot: `data/L0/SG-NES3/SG-NES3_pilot_p01_p14_L0_26-10-05.xlsx`: sheet 1 (33 trees) + the new-trees sheet (13 trees), 33 Issue Log entries. Raw CSV: `data/L0/SG-NES3/SG-NES3_raw.csv`.
+
 ## Open items
+
+- [ ] **Your check of the verbatim pilot (SG-NES3 sheet 1)**, then re-enter all four sites under the verbatim rule.
 
 - [ ] **Hand-off (after all four sites are done):** make this reusable by whoever comes next, given the same template and datasheets. Plan: move the valid-code lists and the column map out of `build_l0.py` into a config file; add `requirements.txt`; write a README covering the steps (render + crop scans, transcribe, build, spot-check); document the conventions from the SG-NES1 check. Note for the README: the reading of handwriting is done by Claude looking at the cropped images, so the next person needs an AI assistant with image reading, not just the scripts.
 - [ ] **Review `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` against the scans** — 555 rows, 93 Issue Log entries (mostly the ~99 rows with ambiguous page dates on sheets 1/16, 2/16, and the new-trees addendum; plus ~25 individually-flagged unclear cells — each cites its exact cell).
@@ -167,6 +173,8 @@ All four L0 workbooks are in `data/work/output/`.
 | 2026-09-25 | Compared your checked SG-NES1 workbook (in `data/work/checked/`) against my original; added valid-value checks, `crossed_out` row handling, comment normalization and a latest-date default to `build_l0.py`; documented the lessons above | Answer the open questions from the diff, then transcribe SG-NES3 / CA-CAR3 / CC-CVN2 |
 | 2026-09-25 | Built degrees-leaning 0→"-" into the script; transcribed all of SG-NES3 (421 trees) with the new checks → `data/work/output/SG-NES3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of SG-NES3, then CA-CAR3 and CC-CVN2 |
 | 2026-09-25 | Transcribed all of CA-CAR3 (297 trees) with the same checks → `data/work/output/CA-CAR3_inventory_data_2026_L0_26-09-25.xlsx` | Your spot-check of CA-CAR3, then CC-CVN2 (last site) |
+| 2026-10-05 | Reorganized `data/` by data level (`L0/<site>/`, `L1/`, `archive/`) | — |
+| 2026-10-05 | Revamped L0 to the verbatim rule (see above); piloted on SG-NES3 sheet 1 | Your check of the pilot, then redo all 4 sites |
 | 2026-09-28 | Transcribed all of CC-CVN2 (534 trees, last of the 4 sites) → `data/work/output/CC-CVN2_inventory_data_2026_L0_26-09-28.xlsx`; fixed a bug where 5 crossed-out rows weren't flagged magenta | All 4 sites now have an L0 file. Next: your spot-check of CA-CAR3 and CC-CVN2, then decide on the hand-off work |
 
 ## Notes and links
