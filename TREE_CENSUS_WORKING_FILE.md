@@ -150,9 +150,24 @@ Changes: `build_l0.py` no longer rewrites any value. It takes Sp_Code from the p
 
 Pilot: `data/L0/SG-NES3/SG-NES3_pilot_p01_p14_L0_26-10-05.xlsx`: sheet 1 (33 trees) + the new-trees sheet (13 trees), 33 Issue Log entries. Raw CSV: `data/L0/SG-NES3/SG-NES3_raw.csv`.
 
+## Messy-page test set (2026-10-19)
+
+Kept apart from the real L0 data in `data/test/`, so the protocol can be tuned before re-running whole sites.
+- Pages: CA-CAR3 sheets 6/9-9/9 (PDF p6-10; sheet 6/9 scanned twice with different rows) and CC-CVN2 sheets 7/17 (PDF p8) and 10/17 (PDF p11).
+- Output: `CA-CAR3_TEST_sheets6-9_L0_26-10-19.xlsx` (126 trees) and `CC-CVN2_TEST_sheets7+10_L0_26-10-19.xlsx` (66 trees), plus their raw CSVs.
+- New check, double reading: this reading was compared with the September reading of the same trees. They disagree on 39 of ~2,860 cells (1.4%), listed in `disagreements_vs_sept_reading.csv` and flagged in each Issue Log. Proposed protocol step: read every page twice independently and flag every disagreement for a human check.
+- Open question: sheet 10/17 has header date 8/12 but Notes say "Day 2 8/13/26"; the handwriting changes at tag 2017. All rows dated 8/13 for now (latest-date rule).
+- **Your check of CA-CAR3 (2026-10-19)** (`CA-CAR3_TEST_FIXED_...xlsx`): 28 reading errors in 2,520 handwritten cells = **98.9% cell accuracy**; 24 of the 28 were already highlighted for review, and 15 of them were among the double-reading disagreements.
+  - Errors by type: overwritten digits in heights/DBH (10), the crew's loopy "0" in Degrees Leaning read as 6/8 or skipped (4), an X-shaped Y in Leaf Damage (3), "BV" for BW (2), two circled living-length values that belong in Living_Length_1 and _2 (4 cells), comment words ("non fixed" -> "now fixed", a stray comma) (2), other single cells (3).
+  - New rules (now in `build_l0.py`): struck-through rows are not highlighted; the strike line is entered as "-" in every cell it crosses (also partial strikes and crossed-out handwriting). All dates are date-only. A second living-length value goes to Living_Length_2_M (CSV field `living_length2`).
+  - Rebuilt from the same reading with the new rules: `CA-CAR3_TEST_v2_...xlsx` matches your fixed file except the 28 reading errors and one strike cell (8491 Leaf Damage, where the line stops short).
+- Later rules (2026-10-19): yellow only on flagged cells (blank cells are not highlighted); every *_Date = the date at the top of the sheet being read (CC-CVN2 sheet 10/17 now 8/12). Both in `build_l0.py`; test files rebuilt.
+- Protocol for the PI: [Tree Census L0 Data Entry Protocol](https://claude.ai/code/artifact/16669609-d56b-4472-8506-bf1513931829). You chose to use the checked CA-CAR3 file as the accuracy evidence; CC-CVN2 test check is optional.
+
 ## Open items
 
-- [ ] **Your check of the verbatim pilot (SG-NES3 sheet 1)**, then re-enter all four sites under the verbatim rule.
+- [x] Your check of the verbatim pilot (SG-NES3 sheet 1): approved 2026-10-19.
+- [ ] **Your check of the messy-page test set** (`data/test/`), then re-enter all four sites under the verbatim rule.
 
 - [ ] **Hand-off (after all four sites are done):** make this reusable by whoever comes next, given the same template and datasheets. Plan: move the valid-code lists and the column map out of `build_l0.py` into a config file; add `requirements.txt`; write a README covering the steps (render + crop scans, transcribe, build, spot-check); document the conventions from the SG-NES1 check. Note for the README: the reading of handwriting is done by Claude looking at the cropped images, so the next person needs an AI assistant with image reading, not just the scripts.
 - [ ] **Review `data/work/output/SG-NES1_inventory_data_2026_L0_26-09-24.xlsx` against the scans** — 555 rows, 93 Issue Log entries (mostly the ~99 rows with ambiguous page dates on sheets 1/16, 2/16, and the new-trees addendum; plus ~25 individually-flagged unclear cells — each cites its exact cell).

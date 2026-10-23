@@ -24,8 +24,10 @@ the sheet, exactly as written -- "190" stays 190, "0" stays 0, "w/" stays "w/",
 a letter in a number column stays a letter. Pre-printed text (the small
 prior-census numbers, printed "NA", the Live/Dead labels, typed prior comments
 that are not circled, the 9999 example row) is never entered. A cell with no
-handwriting is left blank and highlighted. Handwriting that was crossed out by
-the crew is left out of the cell and recorded in the Issue Log. Interpretations
+handwriting is left blank (not highlighted: yellow marks only flagged cells,
+each with an Issue Log entry). A strike line drawn through a cell
+(including through handwriting the crew crossed out) is entered as "-", and
+any crossed-out value is described in the Issue Log. Interpretations
 ("probably 90") go ONLY in the Issue Log, never in the cell. This script makes
 no corrections; it only flags.
 
@@ -37,13 +39,21 @@ is flagged. New trees (not in --prior) take Sp_Code and prev tag from the CSV.
 
 `row_date` (YYYY-MM-DD) is the date at the top of the page this row was
 transcribed from -- used for Height_Date/DBH_Date/CII_Date/Crown_Class_Date/
-Condition_Obs_Date, and for Tag_Date on a new tree. Fill it with the LATEST
-date listed on that sheet; leave it blank only when the sheet has no date, and
-the script uses --census-end (protocol rule) and logs that.
+Condition_Obs_Date, and for Tag_Date on a new tree. Fill it with the date
+written at the TOP of that sheet (the header Date field; user rule 2026-10-19),
+even if another date appears in the sheet's Notes. Leave it blank only when the
+sheet has no header date, and the script uses --census-end (protocol rule) and
+logs that.
 
-`crossed_out` = Y marks a tree that is fully crossed out on the sheet (already
-dead at the previous census): the whole row is highlighted magenta. Only the
-handwriting on it is entered, like any other row.
+`crossed_out` = Y marks a tree whose row is struck through on the sheet
+(already dead at the previous census). Rule from the user's check (2026-10-19):
+the strike line is entered as "-" in every sheet column it crosses that has no
+other handwriting (handwriting on the row, e.g. the D and S, is entered as
+written). The row is NOT highlighted. A line struck through only part of a row
+(e.g. after "OK") is entered as "-" in those cells directly in the CSV.
+
+`living_length2`: a second living-length value (e.g. two circled numbers in the
+living-length area) goes to Living_Length_2_M.
 
 New-trees sheet: it has no Prev Tag column (Previous_Tag_Number is entered
 as "NA") and has Geotag (T/F), Geotag Ref, Geotag Dist (m) and Geotag Dir
@@ -96,6 +106,7 @@ FIELD_MAP = {
     "deathdam_status": "Death_Damage_Status",
     "deathdam_mode": "Death_Damage_Mode",
     "living_length": "Living_Length_1_M",
+    "living_length2": "Living_Length_2_M",
     "pct_crown": "Pct_Crown_Remaining",
     "pct_leaves": "Pct_Leaves_Remaining",
     "degrees_leaning": "Degrees_Leaning",
@@ -116,7 +127,7 @@ NEW_TREE_FIELD_MAP = {
 # Fields that hold measurements, not codes/text — written as real numbers.
 NUMERIC_FIELDS = {
     "height1", "height2", "dbh1", "dbh2", "dbh_hom", "cii",
-    "living_length", "pct_crown", "pct_leaves", "degrees_leaning",
+    "living_length", "living_length2", "pct_crown", "pct_leaves", "degrees_leaning",
     "wounded_trunk", "geotag_ref", "geotag_dist", "geotag_dir",
 }
 
@@ -128,9 +139,6 @@ DATE_COLUMNS = [
     "Condition_Obs_Date",
 ]
 
-# Full-row highlight for trees crossed out on the sheet (already dead at the
-# previous census) — matches the convention used in the hand-checked SG-NES1 file.
-CROSSED_OUT_FILL = PatternFill(start_color="FF00FF", end_color="FF00FF", fill_type="solid")
 
 # Values the sheet's column legends allow. A value outside these is almost
 # certainly a misread (e.g. a "J" in a T/H column), so it's still entered as
@@ -219,6 +227,8 @@ def load_prior_inventory(path):
 
 def parse_date(val):
     """Parse a YYYY-MM-DD string to a date object; pass through other values."""
+    if isinstance(val, dt.datetime):
+        return val.date()  # no time of day: times are not part of the data
     if isinstance(val, str) and val.strip():
         try:
             return dt.date.fromisoformat(val.strip())
@@ -368,8 +378,7 @@ def build(args):
                 cell = ws.cell(row=r, column=col_idx[colname])
                 value = to_cell_value(field, raw_val)
                 if value is None:
-                    cell.fill = HIGHLIGHT
-                    continue
+                    continue  # blank on the sheet = blank cell; not highlighted
                 cell.value = value
                 if isinstance(value, str) and value.startswith("=") and value != CHECKMARK_FORMULA:
                     cell.data_type = "s"  # a written "=" is text, not a formula
@@ -385,9 +394,16 @@ def build(args):
                               tag=tag, row=r, colname=colname)
 
             if crossed_out:
-                # Whole row highlighted, matching the hand-checked SG-NES1 file.
-                for c in range(1, len(headers) + 1):
-                    ws.cell(row=r, column=c).fill = CROSSED_OUT_FILL
+                # Rule (2026-10-19): a line struck through the row is entered
+                # as "-" in every sheet column it crosses that has no other
+                # handwriting -- what is written on the paper. No row highlight.
+                for field, colname in FIELD_MAP.items():
+                    if field in ("sp_code", "comment", "living_length2"):
+                        continue
+                    cell = ws.cell(row=r, column=col_idx[colname])
+                    if cell.value in (None, ""):
+                        cell.value = "-"
+                        cell.fill = PatternFill(fill_type=None)
 
             # Data collection dates: only fill if this row's page date is known.
             for datecol in DATE_COLUMNS:
@@ -445,6 +461,13 @@ def build(args):
                    "(protocol: earliest/latest date across all datasheets for the site)")
 
     write_issues()
+    # Every date cell shows the date only (no 00:00:00 time).
+    for row in ws.iter_rows(min_row=2, max_row=next_row):
+        for cell in row:
+            if isinstance(cell.value, (dt.date, dt.datetime)):
+                if isinstance(cell.value, dt.datetime):
+                    cell.value = cell.value.date()
+                cell.number_format = "yyyy-mm-dd"
     wb.save(args.out)
     print(f"Wrote {args.out}")
 

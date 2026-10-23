@@ -35,5 +35,6 @@ Thumbs.db
 # regenerable scratch (see TREE_CENSUS_WORKING_FILE.md)
 data/scans/
 data/work/images/
+data/test/images/
 
 __pycache__/

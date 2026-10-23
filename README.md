@@ -15,7 +15,7 @@ All 4 plots for the 2026 census have been transcribed to L0:
 
 These were made under the older entry rules and are now in `data/archive/2026-09_old_rules/`. They are being re-entered under the verbatim L0 rule below into `data/L0/`.
 
-## How it works
+## How protocol works
 
 1. **Prepare images (script, no AI).** `scripts/scan_crops.py` renders each scan page, straightens it, and cuts it into 3 horizontal bands x 4 column groups (A: tag to CII, B: canopy to DeathDam mode, C: living length to wounded trunk, D: comment), each with the tag column attached. Each crop is small enough to be read without shrinking.
 2. **Read the handwriting (AI).** An AI assistant with image reading (Claude) opens each crop and types one row per tree into a raw CSV in `data/L0/<site>/`. This is the only step that uses AI, and the only step where judgment happens. No OCR software is involved.
